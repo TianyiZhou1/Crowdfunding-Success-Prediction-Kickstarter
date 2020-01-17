@@ -1,0 +1,721 @@
+---
+title: "Final Report_Kickstarter"
+author: "Group G: Tianyi Zhou, Niqian Wu, Lin Wang, Shengchen Fu"
+date: "12/2/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+####1.Introduction
+
+Kickstarter is an online crowdfunding platform which aims to bring global creative projects to the real world. Each project must clarify its funding goal needed to be reached. Backers will fund the projects they are interested in through Kickstarter. Project teams will offer tangible rewards to their backers in compensation of their funds for the projects. Kickstarter earns profit by charging the successful project teams by 5% of the total pledged amount. 
+
+Therefore, Kickstarter can earn more revenue by enhancing projects’ successful rates and by increasing pledged amount of projects. After our analysis, we discovered some insights about Kickstarter and generated several valuable recommendations to Kickstarter.
+
+Our main problem is how can Kickstarter increase its revenue. The sub-problems are what variables lead to successful projects and what variables lead to higher pledge amount of projects.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# clears the environment window pane in RStudio
+rm(list=ls())
+library(knitr);library(tidyverse);library(readxl);library(scales)#required for plotting
+library(RColorBrewer);library(broom);library(pander)
+setwd("~/Desktop/BUS256/Project")
+df <- read_csv("~/Desktop/BUS256/Project/kickstarter-projects/ks-projects-201801.csv")
+```
+
+####2.Data Description  
+
+**Dataset selection and missing data issue**   
+There are 2 datasets from Kickstarter on Kaggle. In the 2016 dataset, there are many observations with data being shifted to the next column, leading to missing data. In the updated 2018 dataset, Kickstarter amended this issue while covering all the same observations as in 2016 as well as additional observations. So, we used the 2018 dataset without the missing data problem and with more information.  
+To apply this data to our analysis, we explored the original 2018 dataset and conducted data cleaning.
+```{r}
+#to know the variable type of each column
+glimpse(df)
+#selecting variables 
+df = df %>% select(ID, name, category, main_category, deadline, launched, state, backers,country,usd_goal_real, usd_pledged_real)
+#rename
+names(df)[10]<-paste("goal")  
+names(df)[11]<-paste('pledged')
+```
+There are 15 variables and 378661 observations in the original Kickstarter data(2018). Some variables are more important for us, such as state, backers, main_category, goal and pledged. Here is the introduction to the 11 variables we pick: 
+
+* ID: ID of each Kickstarter project  
+* name: a distinct value for each observation, name of each Kickstarter project
+* state: the pledge state of the projects,including successful, failed, suspended, live, canceled and undefined
+* main_category:15 main categories of Kickstarter projects
+* category: subcategory of main_category
+* goal:goal amount in USD
+* pledged: pledged amount in USD
+* backers: the number of backers supporting one project
+* country:the country of the Kickstarter projects
+* deadline: deadline for the pledge
+* launched: start time for the pledge  
+
+To eliminate the currency problem, we kept usd_goal_real and usd_pledged_real and rename them as goal and pledge. For further analysis, we also created a new column goalreachingratio=pledged/goal to see the proportion that one project completed of its pledge goal.   
+
+**The conceptual measure types of the different variables**
+```{r}
+table = data.frame(matrix(nrow=9,ncol=2));colnames(table) = c("Nominal","Ratio");table[1,]=c("ID",'Goal');table[2,]=c("Name",'Pledged');table[3,]=c("State",'Backers');table[4,]=c("Main_category",'');table[5,]=c("category",' ');table[6,]=c("Currency",' ');table[7,]=c("Country",' ');table[8,]=c("Deadline",' ');table[9,]=c("Launched",' ')
+kable(table)
+```
+
+**changing variables type and filtering out observations**
+```{r}
+#to see the proportion of different states
+df %>% group_by(state) %>% summarise(percentage=percent(n()/378661)) %>% arrange(desc(percentage))
+#explaining state
+table = data.frame(matrix(nrow=2,ncol=2))
+colnames(table) = c("State","Description")
+table[1,]=c("Successful","the pledged amount reach the funding goal")
+table[2,]=c("Failed","the pledged amount fail to reach the funding goal")
+kable(table)
+# changing variables type and filter
+df = df %>%filter(state == 'failed'|state =='successful')%>%
+  mutate(category = factor(category),main_category=factor(main_category),state=factor(state),country=factor(country))%>% mutate(goalreachingratio=pledged/goal) 
+#create EndMonth
+df$EndMonth = as.Date(df$deadline, "%m/%d/%Y")
+df$EndMonth = as.numeric(format(df$EndMonth, "%m"))
+#create a binary variable representing whether successful or failed
+df$isSuccessful=ifelse(df$state=="successful", 1, 0)
+```
+We grouped the data by ‘state’ variable. In total, there are 6 types of funding state: successful, failed, canceled, live, suspended, and undefined. We selected successful and failed projects for analysis. For live projects, they haven't reached the funding deadline, so we kept them as test.data for prediction. Other observations were excluded. For cancelled, the project teams canceled the pledge for some unknown reasons. For undefined, we cannot get enough information. For suspended, the project teams violated the regulations of Kickstarter.   
+Besides, this raw data contains some variables stored in wrong type such as category, which should be factor. Therefore, we modified the type of category, main_category, country, state into factor.     
+After cleaning the data, the cleaned dataset contains 331675 observations and 14 variables.
+
+#####3. Summary statistics and Data Visualization  
+**1)Data Visualization**
+
+**a.Category to success**
+```{r message=FALSE, warning=FALSE}
+df_b1 = df %>% group_by(main_category,state)  %>% summarise(quantity =  n())
+df_b1 = df_b1 %>% mutate(proportion = quantity/sum(quantity))
+
+df_b1 %>% 
+  ggplot(aes(x=fct_rev(reorder(main_category,quantity)),y = quantity)) + 
+  geom_bar(aes(fill = state), stat = 'identity', position = 'stack', alpha = 0.6, width = .8) + 
+  scale_fill_manual(values = c("#7EC0EE", '#FFA500', "black")) + 
+  geom_text(aes(label = percent(proportion),group = state), position = position_stack(vjust = 0.5), family = "Times New Roman", size = 2.5) +
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),text=element_text(family="Times New Roman"), legend.position = "bottom") +
+  ggtitle("Number of Projects in Different States for Each Main Category") +
+  scale_y_continuous(breaks=seq(0, 60000, 10000))+
+  xlab("Main Category") +
+  ylab("Number of Projects")
+
+
+```
+
+**Analysis**
+
+This graph shows the numbers of successful and failed projects among main categories. We wanted to understand whether the types of category will influence projects’ success. We chose to use a bar graph for visualization since category is a discrete variable and the number of projects is a continuous variable. We improved the graph by filling the state to show the proportion of projects in different states in a single bar to get a clear comparison.
+Based on our visualization, we found that Film &videos has the largest number of projects, meaning there are more projects with funding needs in this industry. Dance has the smallest number of projects and the highest proportion of successful projects. This means Dance industry has strong development prospects. For these categories that have high successful projects proportion but fewer projects, such as Dance, Theater and Comics, kickstarter should increase the number of projects.
+
+**b.Category to goal-reaching ratio**
+```{r}
+df_b2<-df %>% 
+    mutate(goal_prop=pledged/goal) %>% 
+    group_by(main_category) %>% 
+    summarise(goal_prop_avg=mean(goal_prop)) %>% 
+    arrange(desc(goal_prop_avg))
+
+df_b2 %>% 
+  ggplot(aes(x=fct_rev(reorder(main_category,goal_prop_avg)) ,y=goal_prop_avg,fill=goal_prop_avg))+
+  geom_bar(stat = 'identity',alpha = 0.7)+
+  theme(legend.position="none") + 
+  ggtitle("Average Goal Reaching Ratios for Main Catergories") +
+  xlab("Main Catergory") +
+  ylab("Average Goal Reaching Ratio") +
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),text=element_text(family="Times New Roman"),plot.title = element_text(hjust = 0.5))+
+  scale_y_continuous(breaks=seq(0, 8, 1))+
+  geom_hline(aes(yintercept=1),col='Red')+
+   scale_fill_continuous(trans = 'reverse')
+
+```
+
+**Analysis**
+
+From the previous analysis, we found that some categories have more successful projects. We decided to further detect whether some categories would be so popular among backers that their pledged amount exceeded their funding goals dramatically. Therefore, we selected category and goal reaching ratio as variables. If the state was successful, the ratio must be larger than 1. In order to do the visualization, we chose the histogram, since main category is nominal and goal reaching ratio is ratio. Therefore, we can compare goal reaching ratio among different main categories clearly. We used different colours for categories to show more contrast. We changed the label interval on the y axis from 2 to 1 and draw a horizontal line to help us distinguish the successful categories from failed ones.
+
+**c.Backers to success**
+
+```{r}
+df_b3 <- df %>% 
+  group_by(main_category,state) %>% 
+  summarise(Avg_backers = mean( backers)) 
+df_b3 %>%
+  ggplot(aes(fct_rev(reorder( main_category,Avg_backers)), y = Avg_backers,fill = state))+ 
+  geom_bar(stat = "identity",alpha = 0.6, position = "dodge") +
+  scale_fill_manual(values = c("#7EC0EE", "#FFA500", "black"))+
+  ggtitle("Number of Average Backers for Main Categories")+
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),legend.position = "bottom",text=element_text(family="Times New Roman"))+
+  xlab("Main Category")+ 
+  ylab("Average Backers")
+ 
+ 
+df_b4 <- df %>% 
+  group_by(main_category, state) %>% 
+  summarise(Fund_person = sum(pledged)/sum(backers))
+df_b4 %>% 
+  ggplot(aes(fct_rev(reorder(main_category,Fund_person)), y = Fund_person, fill = state))+  
+  geom_bar(stat= "identity", alpha = 0.6)+ 
+  scale_fill_manual(values = c("#7EC0EE", "#FFA500", "black"))+
+  ggtitle("Average Pledge Per Backer for Main Categories")+ 
+  xlab("Main Category")+ ylab("Average pledge amount per Backer")+
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),legend.position = "bottom",text=element_text(family="Times New Roman"))+
+  geom_text(aes(label = round(Fund_person,0)), position = position_stack(vjust = 0.5), family = "Times New Roman", size = 3)
+
+```
+
+**Analysis**
+
+We wanted to understand what categories attract more backers to pledge and toward which categories backers would like to fund more money. We chose the number of backers and their average pledge amount for each category to measure the appeal of these categories. We used the bar graph to make these two visualizations, since the average backers and the average pledge amount per backer are continuous variables, and main category is a discrete variable. Moreover, within categories we compared the avergae backers and average pledge amount between successful and failed projects.
+Based on these visualizations, we found that Games, Technology and Design have the largest number of the backers and are popular among backers. According to the second visualization, the Technology category has the second largest number of backers and the highest pledge amount per backer. Technology is a popular category that Kickstarter should invite more projects. For those categories with higher average pledge amount but lower number of backers, such as Film & Video, Theater, Photography and Art, backers are more generous to invest.
+
+**d.The relationship between goal and success**
+
+```{r}
+df_b5 = df %>% group_by(main_category,state)  %>% summarise(avg_goal =  mean(goal))
+df_b5 %>% ggplot(aes(x = fct_rev(reorder(main_category, avg_goal)), y = avg_goal)) +
+  geom_bar(aes(fill = state), stat = 'identity', position = 'dodge',alpha = 0.6, width = .8)+
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),legend.position = "bottom",text=element_text(family="Times New Roman"))+
+  scale_fill_manual(values = c("#7EC0EE", '#FFA500', "black"))+
+   ggtitle("Average Goal Amount for Each Main Category") +
+   xlab("Main Category") +
+  ylab("Goal Amount")
+
+options(scipen=999)
+df %>% 
+  ggplot(aes(x=state,y=log10(goal)))+
+  geom_boxplot(fill ='#FFA500', colour = "#EE9A00",alpha=.7) +
+  xlab('State')+
+  ylab('Log10 (Goal Amount)')+
+  labs(title = "Goal Distribution of Different States") +
+  theme(plot.title = element_text(hjust = 0.5),text=element_text(family="Times New Roman"))+
+  scale_fill_continuous(label=comma)
+```
+
+**Analysis**
+
+We wanted to find whether the goals were different between successful and failed projects. In the first graph, among all the categories, the goal amounts of successful projects were much smaller. In the second graph, we used the boxplot for the visualization of goal distribution, since goal is ratio and state is nominal. Because of the outliers, we applied log function to goal amount for showing the box clearly. We found that in the successful projects, goal distribution had a smaller range with a lower position compared to the failed projects. Therefore, we came to a conclusion that setting a smaller, reasonable and affordable goal can help projects to take steps toward a successful state, and establish trust with crowd funders.
+
+**2)Summary statistics**  
+At the end of this part, we took a look at the countries where the five biggest numbers of projects are from.The biggest number of projects is from United States, which is 79% of total projects.
+```{r message=FALSE, warning=FALSE}
+df_b5 = df %>% 
+  group_by(country) %>% summarise(`number of projects` = n_distinct(ID)) %>% top_n(5) %>% arrange(desc(`number of projects`)) %>% kable()
+df_b5
+```
+
+####4.Preliminary statistical analysis
+
+**a.Chi-squared test: association between category and state**
+
+```{r}
+table(df$main_category, df$state)
+chisq.test(table(df$main_category, df$state))
+```
+
+Under 95% confidence level, p-value < 2.2e-16, so we rejected the null hypothesis. Category and state have a statistically significant association. This further proves our finding in the visualization 3.a that different categories have different proportion of failed and successful projects.
+
+**b.T-test for category groups with different goal-reaching ability** 
+
+Based on the graph in 3.b, we knew that the goal-reaching ratio (pledged/goal) is different between categories. To verify whether this difference is statistically significant, we used T-test because ratio is a continuous variable. We compared different observations within one variable using independent T-test.  
+
+We devided 15 categories into three groups because we wanted to provide recommendations to Kickstarter about which categories should be prompted as top priority. 
+
+```{r}
+#Grouping
+df_high <- df %>% filter(main_category == ' Music'| main_category== 'Games'|main_category== 'Comics'|main_category=='Technology'|main_category=='Art')%>% mutate(ratio = pledged/goal)
+
+df_medium <- df %>% filter(main_category == 'Crafts'| main_category== 'Design'|main_category== 'Publishing'|main_category=='Film & Video'|main_category=='Fashion') %>% mutate(ratio = pledged/goal)
+
+df_low <- df %>% filter(main_category == 'Journalism'| main_category== 'Photography'|main_category== 'Dance'|main_category=='Food'|main_category=='Theater') %>% mutate(ratio = pledged/goal)
+```
+
+Hypothesis 1:
+$$ H_0: \mu_{highratio} = \mu_{mediumratio}; \; \; H_A: \mu_{highratio} \neq \mu_{mediumratio} $$
+```{r}
+###Hypothesis 1
+table = data.frame(matrix(nrow=1,ncol=4))
+colnames(table) = c("Variable","Mean for high categories","Mean for medium categories","p-value")
+test_1 = t.test(df_high$ratio, df_medium$ratio, paired = FALSE)
+table[1,]=c("Ratio",round(as.numeric(test_1$estimate[1]),4),round(as.numeric(test_1$estimate[2]),4),round(as.numeric(test_1$p.value),4))
+kable(table)
+```
+
+Hypothesis 2:
+$$ H_0: \mu_{highratio} = \mu_{lowratio}; \; \; H_A: \mu_{highratio} \neq \mu_{lowratio} $$
+
+
+```{r}
+###Hypothesis 2
+table = data.frame(matrix(nrow=1,ncol=4))
+colnames(table) = c("Variable","Mean for high categories","Mean for low categories","p-value")
+test_2 = t.test(df_high$ratio, df_low$ratio, paired = FALSE)
+table[1,]=c("Ratio",round(as.numeric(test_2$estimate[1]),4),round(as.numeric(test_2$estimate[2]),4),round(as.numeric(test_2$p.value),4))
+kable(table)
+```
+
+Hypothesis 3:
+$$ H_0: \mu_{lowratio} = \mu_{mediumratio}; \; \; H_A: \mu_{lowratio} \neq \mu_{mediumratio} $$
+
+```{r}
+###Hypothesis 3
+table = data.frame(matrix(nrow=1,ncol=4))
+colnames(table) = c("Variable","Mean for low categories","Mean for medium categories","p-value")
+test_3 = t.test(df_low$ratio, df_medium$ratio, paired = FALSE)
+table[1,]=c("Ratio",round(as.numeric(test_3$estimate[1]),4),round(as.numeric(test_3$estimate[2]),4),round(as.numeric(test_3$p.value),4))
+kable(table)
+```
+
+For these 3 T-tests, all the p-values are smaller than 0.01, so we reject the Null Hypothesis that the mean of ratio between high and medium, high and low, low and medium are respectively equal. In conclusion, average goal-reaching ratios between groups of different categories are statistically significant at 99% confidence level.
+
+**c.T-test for number of backers between successful and failed projects**
+
+Based on the graph in 3.c, we knew that the average backer numbers of the successful projects are much more than the failed projects. To verify whether this difference is statistically significant, we used T-test because backers is a continuous variable. We compared different observations within one variable using independent T-test.
+
+Hypothesis:
+$$ H_0: \mu_{Sbackers} = \mu_{Fbackers}; \; \; H_A: \mu_{Sbackers} \neq \mu_{Fbackers} $$
+
+```{r}
+df_successful<-df %>% filter(state=='successful')
+df_failed<-df %>%filter(state=='failed')
+###Table
+table = data.frame(matrix(nrow=1,ncol=4))
+colnames(table) = c("Variable","Mean for successful projects","Mean for failed projects","p-value")
+test_4 = t.test(df_successful$backers, df_failed$backers, paired = FALSE)
+table[1,]=c("Backers",round(as.numeric(test_4$estimate[1]),4),round(as.numeric(test_4$estimate[2]),4),round(as.numeric(test_4$p.value),4))
+kable(table)
+```
+
+The extremely small p-value in the test result states that the average backer numbers are significantly different between successful and failed projects. Averagely, a successful project had 264 backers and a failed project had 16 backers. In conclusion, Kickstarter should attract more backers by promotion events.
+
+**d.t-test for funding goal, pledge amount and goal-reaching ratio between successful and failed groups**
+
+To further analyze the difference between successful and failed projects, we conducted 3 more independent T-tests to see whether their goal, pledge amount and goal-reaching ability are statistically different.   
+We used independent T-tests in this analysis as well. 
+
+Hypothesis 1:
+$$ H_0: \mu_{Sgoal} = \mu_{Fgoal}; \; \; H_A: \mu_{Sgoal} \neq \mu_{Fgoal} $$
+Hypothesis 2:
+$$ H_0: \mu_{Spledged} = \mu_{Fpledged}; \; \; H_A: \mu_{Spledged} \neq \mu_{Fpledged} $$
+Hypothesis 3:
+$$ H_0: \mu_{Sratio} = \mu_{Fratio}; \; \; H_A: \mu_{Sratio} \neq \mu_{Fratio} $$
+
+```{r,warning=FALSE}
+#c: table
+ttests = list(NULL)
+ttests[[1]] = t.test(df_successful$goal, df_failed$goal, paired = FALSE)
+ttests[[2]] = t.test(df_successful$pledged, df_failed$pledged, paired = FALSE)
+ttests[[3]] = t.test(df_successful$goalreachingratio, df_failed$goalreachingratio, paired = FALSE)
+means = t(sapply(1:3, function(i){ttests[[i]]$estimate}))
+tab = data.frame(Variables = c('Goal','Pledged','Goal reaching ratio'),
+                 `Mean successful ` = means[,1],
+                 `Mean failed ` = means[,2],
+                 `p-value` = sapply(1:3, function(i){ttests[[i]]$p.value}))
+knitr::kable(tab)
+```
+
+Because these three p-values are extremely small, we concluded that goal, pledge amount, and goal_reaching ratio are statistically different between successful projects and failed projects. In conclusion, a successful project has lower goal, higher pledged amount and much higher goal-reaching ability on average.
+
+**Preliminary statistical analysis conclusion**
+
+* Different categories had different proportion of failed and successful projects.
+* Music, Games, Comics, Technology, Art had relatively higher average goal-reaching ratios compared to other categories.
+* On average, the backer numbers of successful projects were 17 times larger than failed projects.
+* On average, successful projects had lower goals, higher pledged amounts and much higher goal-reaching ability.
+
+####5.Regression Analysis  
+**a.Logistic Regression**
+```{r warning=FALSE}
+#run a logistic regression
+logres = glm(isSuccessful ~ goal+backers+main_category,data = df, family = binomial)
+summary(logres)
+```
+
+**Analysis**  
+Continuing our analysis of funding state, we conducted a logistic model to see how the goal, backers and main category affect the log odds (p(successful)/p(y=failed)) of success. We regressed isSuccessful on goal, backers and main_category. From the regression result, all the regressors are significant. It means that goal, backers and main category affect the log odds of success.  
+We can see that the probability of success for each category varies a lot. Intercept represents the Art category. Holding goal and backers same, Theater, Dance, Film & Video and Music are the top 4 categories that have a high probability to be successful, known from their positive and relatively high coefficients. While the Games category has the lowest coefficient, indicating that it had the smallest probability to succeed among all categories.
+
+**b.Linear Regression**  
+
+**baseline linear regression**
+```{r}
+reg_baseline = lm(pledged~goal+backers, data = df)
+summary(reg_baseline)
+confint(reg_baseline, level=0.95)
+```
+
+**Analysis**
+
+This is our baseline regression. By running this regression, we wanted to test whether the goal and backer numbers of projects will influence the pledged amount. We regressed pledged on goal and backers. We found that backers was significant at any confidence level and goal was significant at 95% confidence level. If the goal goes up by one unit, average pledged amount will go up by 0.0002 dollars holding backer numbers constant. If the backers goes up by one unit, the average pledged amount will go up by 75 dollars holding the goal constant. For this regression, the Adjusted R squared is 0.566, which means our regression model is acceptable.
+
+
+**Adding main_category x backers interaction into regression**
+
+```{r}
+lm_inter = lm(pledged~goal+backers+factor(main_category)+factor(main_category)*backers,data = df)
+summary(lm_inter)
+```
+
+**Analysis**
+
+In this regression, we wanted to know whether the main category will affect pledge amount and backer numbers. We added main_category and main_category*backers into independent variables based on the baseline regression. After running this regression, we found that adjusted R squared was increased from 0.5659 to 0.6065.
+
+We found that three categories have significant, positve and high coefficients of backers*main_category. For instance, when the category is Design, increasing in one backer will lead to 109.19 dollars rising in the pledge amount. Therefore, we recommend kickstarter focus on Design, Food and Photography, since backers numbers will significantly affect the project' pledge amount. 
+
+Additionally, the initial average pledged amount for Technology is 8936 (the coefficient of intercept in regression is not significant). This means Technology projects pledged more on average, holding goal and backers constant. This corresponds to our previous conclusion in visualization 3.c: Kickstarter should focus on Technology projects because they are easier to raise fund.
+
+**Linear Regression after Segmentation with main categories**
+
+```{r,warning = FALSE}
+#Create a dataset for Technology
+df_Technology = df %>%
+  select(EndMonth, main_category,pledged, goal, backers) %>%
+  filter(main_category == 'Technology')
+
+lm_Technology = lm(pledged ~ goal+factor(EndMonth)*backers, data = df_Technology)
+summary(lm_Technology)
+```
+
+```{r}
+#table of formula for technology
+table = data.frame(matrix(nrow=12,ncol=2));colnames(table) = c("Month","Formula");table[1,]=c("1",'pledge = 0.0003 goal + 78.01  backers + 8077');table[2,]=c("2",'pledge = 0.0003 goal + 88.38 backers + 8077');table[3,]=c("3",'pledge = 0.0003 goal + 94.31 backers + 8077');table[4,]=c("4",'pledge = 0.0003 goal + 172.62 backers-2703');table[5,]=c("5",'pledge = 0.0003 goal + 94.98 backers + 8077');table[6,]=c("6",'pledge = 0.0003 goal + 70.62 backers + 8077');table[7,]=c("7",'pledge = 0.0003 goal + 56.47 backers + 13489');table[8,]=c("8",'pledge = 0.0003 goal + 57.9 backers + 8077');table[9,]=c("9",' pledge = 0.0003 goal + 108.68 backers + 2044');table[10,]=c("10",'pledge = 0.0003 goal + 97.71 backers + 8077');table[11,]=c("11",'pledge = 0.0003 goal + 131.16 backers + 8077');table[12,]=c("12",'pledge = 0.0003 goal + 58.69 backers + 8077')
+kable(table)
+```
+
+**Analysis**
+
+We built the segmentations based on main categories and did linear regressions for 15 categories. We already knew that backers is a determinant of pledge. We wanted to know whether month will affect projects’ pledge amount and backer numbers differently within different categories, so we used it as an interaction term. We regressed pledged amount on goal, backers and backers*factor(EndMonth). We chose the Technology category to make a detailed analysis since it has the largest average backer numbers which means that it appeals to the backers the most. In technology, for example, in Month 11, increasing in one backer will lead to 131.16 dollars rising in pledge amount, holding others constant. Therefore, we recommend Kickstarter to promote Technology projects in Month 4,9,11, which have high coefficient that backers numbers will significantly affect the projects' pledge amount. As for other categories, Kickstarter should also focus on certain months which have high coefficient of backers to promote their projects. 
+
+
+**d.Data Aggregation: main_category-month level**
+```{r}
+df_aggregation = df%>%
+group_by(main_category,country,EndMonth)%>% summarise(avg_pledged=mean(pledged),avg_goal= mean(goal),avg_backers=mean(backers))
+lm_aggregation = lm(avg_backers~country,data = df_aggregation)
+summary(lm_aggregation)
+```
+
+**Analysis**     
+Based on main_category-month data aggregation level, we did this linear regression to know whether country will have effects on projects’ backers number. We regressed avg_backers on factor(main_category) and country. Comparing the coeffients of different countries, we found that projects from AT, US and SG had relatively more backers.
+
+
+####6.Segmentation  
+**a.Apriori Segmentation**  
+From our analysis above, we found that there are significant segments based on month and category. The kickstarter of manager should customize its campaign strategy for different categories in different months.  
+From our logistic regression above, we found that goal, backers and main category affect the state of a project.From our linear regression above, we realized that 'backers' is a determinant of the pledge amount of one project and the effect of bakcers on pledge amount is affected by categories. However, the effect of goal on pledge amount is relatively small.From our aggregation regression above, we realized that except for considering months and categories, kickstarter should also change its campaign plan for projects from different countries.
+
+**b.Post-hoc Segmentation**  
+We used the k-means method to do the Post-hoc Segmentation. We inputed bakcers, goal, and isSuccessful and got a segmentaion of four groups.  
+
+```{r}
+seg.summ <- function(data, groups) {
+  aggregate(data, list(groups), function(x) mean(as.numeric(x)))  
+}
+seg.df.num = select(df,backers,goal,isSuccessful) 
+scaled_data = scale(seg.df.num)
+set.seed(12345678)
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k){kmeans(scaled_data, k, nstart=50,iter.max = 20 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+```{r}
+set.seed(12345678)
+seg.k4 <- kmeans(scaled_data, centers=4, nstart = 50, iter.max = 20 )
+seg<-data.frame(seg.summ(seg.df.num, seg.k4$cluster)) %>% pandoc.table(style='simple')
+```
+**Analysis**  
+Based on the characteristic of the four groups, we define group 1 as 'the second highest goal with the highest number of backers', group 2 as 'the lowest goal with the second highest number of backers', group 3 as 'the third highest goal with the third highest number of backers' and group 4 as 'the highest goal with the lowest backers'. Group 1 and Group 2 are successful projects.
+
+Kickstarter should set a system to evaluate the optimal goal of a project and avoid a project setting unreachable pledge goal. We can see that projects with a small number of backers cannot make it. Kickstarter should help promote for projects to attract more backers. For popular projects with a great number of supporters, Kickstarter can help the project set a relatively high goal of pledge amount.
+
+**add the segmentention_group variable into previous regression**
+
+```{r include=FALSE}
+#Create the segmentention_group variable
+df<- df%>%mutate(segmentation_group=seg.k4$cluster)
+#see result in Appendix 2
+lm_segmentation = lm(pledged~factor(main_category)*backers + goal+factor(segmentation_group),data = df)
+summary(lm_segmentation)
+```
+
+```{r}
+#compare with the old regression without segmentation_group
+lm_inter = lm(pledged~goal+backers+factor(main_category)+factor(main_category)*backers,data = df)
+model.sel = data.frame(Adj.RSq = c(summary(lm_inter)$adj.r.squared,
+                                   summary(lm_segmentation)$adj.r.squared),
+                       AIC = c(AIC(lm_inter),
+                               AIC(lm_segmentation))) %>% round(4) 
+Regression=c('Before_segementation','After_segmentation')
+model.sel=cbind(Regression,model.sel);pandoc.table(model.sel,style='simple')
+```
+
+We added the segmentation_group variable into the regression and found that Adj.RSq is increased and AIC is decreased. Thus, the result of the Post-jac segmentation is useful.
+
+####7.Prediction
+
+**a. Predicting Goal: pledged amount**
+
+Our predicting goal is pledged amount of a project. With prediction, we can compare pledged amount with the project's funding goal to investigate the gap to success. Also, Kickstarter charges the successful project teams by a certain fee rate of pledged amount. Thus, predicting pledged amount will help us predict the revenue.
+
+**b. Data Spliting**
+
+```{r message=FALSE, warning=FALSE}
+setwd("~/Desktop/BUS256/Project")
+df2 <- read_csv("~/Desktop/BUS256/Project/kickstarter-projects/ks-projects-201801.csv")
+#We used live projects as test data for prediction.
+test.data = df2 %>%filter(state == 'live')%>%
+  mutate(category = factor(category),main_category=factor(main_category),state=factor(state),country=factor(country))
+set.seed(12345678)
+validation.index = sample(seq(1,nrow(df)), floor(0.10*nrow(df)))
+validation.data = df[validation.index, ]
+training.data = df[-validation.index, ]
+prediction.error = function(lm_model, test.data){
+  predicted.pledged = predict(lm_model, test.data)
+  error = sqrt(mean((predicted.pledged-test.data$pledged)^2))
+}
+```
+
+**c. 15 regression models**
+
+```{r}
+lm_1 = lm(pledged~backers, data = training.data)
+lm_2 = lm(pledged~backers+goal, data = training.data)
+lm_3 = lm(pledged~backers+goal+backers*goal, data = training.data)
+lm_4 = lm(pledged~backers+goal+factor(main_category), data = training.data)
+lm_5 = lm(pledged~backers+goal+factor(main_category)*goal, data = training.data)
+lm_6 = lm(pledged~backers+goal+factor(main_category)*backers, data = training.data)
+lm_7 = lm(pledged~backers+goal+factor(main_category)*factor(EndMonth), data = training.data)
+lm_8 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth),data = training.data)
+lm_9 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers, data = training.data)
+lm_10 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*factor(main_category), data = training.data)
+lm_11 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers+country, data = training.data)
+lm_12 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers+country*factor(main_category), data = training.data)
+lm_13 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers+country*factor(EndMonth), data = training.data)
+lm_14 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers+country*backers, data = training.data)
+lm_15 = lm(pledged~backers+goal+factor(main_category)*backers+factor(EndMonth)*backers+country*backers+factor(segmentation_group), data = training.data)
+```
+
+Next, we calculated the predicted error.
+
+```{r message=FALSE, warning=FALSE}
+error_model1 = prediction.error(lm_1, validation.data)
+error_model2 = prediction.error(lm_2, validation.data)
+error_model3 = prediction.error(lm_3, validation.data)
+error_model4 = prediction.error(lm_4, validation.data)
+error_model5 = prediction.error(lm_5, validation.data)
+error_model6 = prediction.error(lm_6, validation.data)
+error_model7 = prediction.error(lm_7, validation.data)
+error_model8 = prediction.error(lm_8, validation.data)
+error_model9 = prediction.error(lm_9, validation.data)
+error_model10 = prediction.error(lm_10, validation.data)
+error_model11 = prediction.error(lm_11, validation.data)
+error_model12 = prediction.error(lm_12, validation.data)
+error_model13 = prediction.error(lm_13, validation.data)
+error_model14 = prediction.error(lm_14, validation.data)
+error_model15 = prediction.error(lm_15, validation.data)
+
+data.frame(Names = c("1","2", "3",
+                     "4", "5", "backers+goal+factor(main_category)*backers","7"," 8","9","10","11","12","13","14","15"), 
+           Error = c(error_model1,error_model2, error_model3, error_model4, error_model5,     error_model6,error_model7,error_model8, error_model9, error_model10, error_model11, error_model12,error_model13, error_model14, error_model15 ))
+```
+
+
+**d. the best model**
+
+Our best model is the one with the lowest prediction error:
+
+pledged= backers+ goal+ factor(main_category) x backers
+
+```{r include=FALSE}
+#See result in Appendix 1
+summary(lm_6)
+```
+
+**e. predict the pledge amount**
+```{r}
+#clean the test data
+max(test.data$launched)
+test.data<-test.data %>% filter(state=='live'& deadline>='2018-01-02')
+test.data$launched<-substr(test.data$launched, 1, 10)
+test.data$launched = as.Date(test.data$launched, "%Y-%m-%d")
+test.data<-test.data %>% mutate(currentdate='2018-01-02')
+test.data$currentdate = as.Date(test.data$currentdate , "%Y-%m-%d")
+test.data<-test.data %>% mutate(before=currentdate-launched,period=deadline-launched)
+test.data$before<-as.numeric(test.data$before)
+test.data$period<-as.numeric(test.data$period)
+#Caculate the final number of backers
+test.data<-test.data %>% mutate(backers_rate=backers/before,
+                                predicted_backers=backers_rate*period)
+test.data<-test.data %>% mutate(backers_unadjusted=backers,backers=predicted_backers)
+```
+
+For live prjects, they hadn't reached their deadlines by 2018-01-02 when we collected data. Thus, the number of backers changes over time. We assumed that the growth rate of backers is constant and we treated the growth rate of backers before 2018-01-02 as the growth rate during the whole process to caculate the final number of backers.
+```{r}
+#predict
+predicted.y = predict(lm_6 , test.data, se.fit = TRUE)
+```
+**f. Calculating the 95% confidence interval for the predicted pledge amount.**
+```{r}
+test.data$predicted.y = predicted.y$fit
+test.data$se.fit = predicted.y$se.fit
+test.data$upper.limit = test.data$predicted.y + qnorm(0.975)*test.data$se.fit 
+test.data$lower.limit = test.data$predicted.y - qnorm(0.975)*test.data$se.fit
+```
+
+Also, we caculated the condifence interval for each live project. The pledge amount of each project has 95% probablity to lie in its confidence interval.
+
+```{r}
+test.data$predict.state=ifelse(test.data$predicted.y>test.data$goal,'successful','failed')
+sum(is.na(test.data$predicted.y))#number of observations where predicted y is NA
+df_na<-test.data%>%filter(is.na(test.data$predicted.y))
+test.data<-test.data %>% filter(!is.na(test.data$predicted.y))
+sum(test.data$predicted.y<0)#number of observations where predicted y<0
+df_negative<-test.data %>% filter(test.data$predicted.y<0)
+test.data<-test.data %>% filter(test.data$predicted.y>0)
+data.frame(Predicted_y=c("N.A.","Negative"), Number_observation=c("39","184"))
+```
+
+**Analysis**  
+
+We had 39 NA for predicted pledge amount because those projects launched on 2018-01-02 and we didn't have information for evaluating the final number of backers.
+According to our prediction model, 185 projects have negative predicted pledge amount for several reasons. First, the number of backers was very small by 2018-01-02. Second, the pledge amount was very small by 2018-01-02. Third, these projects are not promising and their growths of pledge amount are weak. 
+
+```{r}
+df_test = test.data %>% group_by(main_category,predict.state)  %>% summarise(quantity =  n())
+df_test = df_test %>% mutate(proportion = quantity/sum(quantity))
+df_test %>% 
+  #ggplot(aes(x=fct_rev(reorder(main_category,quantity)),y = quantity)) + 
+  ggplot(aes(x=fct_rev(reorder(main_category,quantity)),y = quantity)) + 
+  geom_bar(aes(fill = predict.state), stat = 'identity', position = 'stack', alpha = 0.6, width = .8) + 
+  scale_fill_manual(values = c("forestgreen", 'tomato', "black")) + 
+  geom_text(aes(label = percent(proportion),group = predict.state), position = position_stack(vjust = 0.5), family = "Times New Roman", size = 2.5) +
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),text=element_text(family="Times New Roman"), legend.position = "bottom") +
+  ggtitle("Prediction: Number of Projects in Different States for Each Main Category") +
+  xlab("Main Category") +
+  ylab("Number of Projects")
+```
+
+**Prediction Analysis**
+
+Based on our prediction, we found categories with the five highest successful rates are Comics, Games, Photography, Art and Technology. However, Comics and Photography have relative small numbers of projects.
+
+```{r}
+df_test1 = test.data %>% 
+  group_by(main_category)%>% 
+  summarise(avg_pledge = mean(predicted.y))%>% 
+  arrange(desc(avg_pledge))
+
+df_test1 %>% 
+  ggplot(aes(x=fct_rev(reorder(main_category,avg_pledge)),y=avg_pledge,fill=avg_pledge))+
+  geom_bar(stat = 'identity',alpha = 0.7)+
+  theme(legend.position="none") + 
+  ggtitle("Prediction: Average Pledge Amount For Each Category") +
+  xlab("Main Catergory") +
+  ylab("Predicted Average Pledge Amount") +
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),text=element_text(family="Times New Roman"))+
+  scale_fill_continuous(trans = 'reverse')+
+  geom_text(aes(label = round(avg_pledge,0)), position = position_stack(vjust = 0.5), family = "Times New Roman", size = 3)
+```
+
+
+According to our visualization, we predicted the average pledge amount of each category. Design and Technology have significantly large amounts of predicted average pledge amount. 
+
+```{r}
+df_test2 = test.data %>% 
+   filter(predict.state == 'successful')%>%
+  group_by(main_category)%>% 
+  summarise(avg_pledge = mean(predicted.y))%>% 
+  arrange(desc(avg_pledge))
+
+df_test2 %>% 
+  ggplot(aes(x=fct_rev(reorder(main_category,avg_pledge)),y=avg_pledge,fill='#EEB4B4'))+
+  geom_bar(stat = 'identity',alpha = 0.7)+
+  theme(legend.position="none") + 
+  ggtitle("Prediction: Average Pledge Amount For Successful Projects in Each Category") +
+  xlab("Main Catergory") +
+  ylab("Predicted Average Pledge Amount") +
+  theme(axis.text.x = element_text(size = 7, color = "black", face = "plain", vjust = 0.5, hjust = 0.5, angle = 45),plot.title = element_text(hjust = 0.5),text=element_text(family="Times New Roman"))+
+  geom_text(aes(label = round(avg_pledge,0)), position = position_stack(vjust = 0.5), family = "Times New Roman", size = 3)
+```
+
+
+According to our visualization, we showed the average pledge amount of successful projects in each category. Successful projects in Design and Technology have significantly large amounts of predicted average pledge amount. 
+
+**Calculating total predicted revenue for each category**
+
+```{r}
+df_test3 = test.data %>% 
+  filter(predict.state == 'successful')%>%
+  group_by(main_category)%>%
+  summarise(revenue = sum(round(predicted.y,0))*0.05) %>%
+  arrange(desc(revenue,0))%>%
+  kable()
+df_test3
+```
+
+Based on our prediction, we predicted that categories with top 5 Predicted Revenue are Design, Technology, Games, Fashion and Music.
+
+####8.Conclusion 
+
+**a. Variables lead to successful projects and higher pledge amount of projects:**
+
+A reasonable goal, a large amount of backers and diversified strategy for different categories are important variables that lead to successful projects and higher pledge amount of projects.
+
+**b. Recommendations for increasing Kickstarter’s revenue**
+
+1.  Kickstarter should guide projects to set reasonable and reachable goals.
+
+2.  Kickstarter should promote for projects to attract more backers:
+
+* Advertise the Kickstarter website to increase the visitor volume. 
+
+3. Kickstarter should diversify promotion strategy based on categories and months: 
+
+* Kickstarter should promote for Technology heavily in April, September and November.
+
+4. Kickstarter should invite more projects:
+
+* Dance, Theater and Comics: High successful rates but small number of projects 
+    
+* Technology: High average pledge amount & high average number of backers
+    
+**c. Prediction for current live projects**
+
+We predicted that the categories with top 5 successful rate are Comics, Games, Photography, Art and Technology and categories with top 5 Predicted Revenue are  Design, Technology, Games, Fashion and Music.
+
+###Appendix:
+
+**Appendix 1**
+
+**d. the best model**
+
+Our best model is the one with the lowest prediction error:
+
+pledged= backers+ goal+ factor(main_category) x backers
+
+```{r echo=TRUE}
+#See result in appendix 1
+summary(lm_6)
+```
+
+**Appendix 2**
+
+**add the segmentention_group variable into previous regression**
+
+```{r echo=TRUE}
+#Create the segmentention_group variable
+df<- df%>%mutate(segmentation_group=seg.k4$cluster)
+#see result in Appendix 2
+lm_segmentation = lm(pledged~factor(main_category)*backers + goal+factor(segmentation_group),data = df)
+summary(lm_segmentation)
+```
